@@ -143,8 +143,9 @@ def input_word_generator():
                 yield(word)
                 yield('\n')
                 word = ''
-            elif char.isspace():
+            elif char == ' ':
                 yield(word)
+                yield(' ')
                 word = ''
             else:
                 word += char
@@ -155,43 +156,157 @@ def input_word_generator():
             time.sleep(0.1)
 
 
-MODE_DICTATION = 0
-MODE_CODE = 2
+class SpeechMode(object):
+
+    def switch_to(self):
+        pass
+
+
+class ModeDictation(SpeechMode):
+
+    def __init__(self, keypresser):
+        self.keypresser = keypresser
+
+    def switch_to(self):
+        super(ModeDictation, self).__init__()
+
+    def parse(self, word):
+        self.keypresser.emit_keypresses(word)
+
+LANG_PYTHON = 0
+LANG_JAVASCRIPT = 1
+
+class ModeCode(SpeechMode):
+
+    def __init__(self, keypresser):
+        self.keypresser = keypresser
+        self.language = LANG_PYTHON
+
+    def switch_to(self):
+        super(ModeCode, self).__init__()
+        self.last_word_was_identifier = False
+
+    def parse(self, word):
+        word = word.lower()
+        print ("CODE ({0})".format(word), end="\r\n")
+
+        # special command to change code language
+        if word == 'language':
+            # next 2 fragments (1 is space)
+            wanted_lang = self.keypresser.next_input_fragments(2).strip().lower()
+            if wanted_lang == 'javascript':
+                self.language = LANG_JAVASCRIPT
+                print("LANGUAGE JAVASCRIPT")
+            elif wanted_lang == 'pie':
+                self.language = LANG_PYTHON
+                print("LANGUAGE PYTHON")
+
+            return
+
+        elif word == ' ':
+            if self.last_word_was_identifier:
+                if self.language == LANG_PYTHON:
+                    self.keypresser.emit_keypresses('_')
+            else:
+                self.keypresser.emit_keypresses(' ')
+
+        elif word.isalpha():
+            # part of an identifier
+            if self.last_word_was_identifier and self.language == LANG_JAVASCRIPT:
+                # camel-case identifiers
+                word = word[0].upper() + word[1:]
+            self.keypresser.emit_keypresses(word)
+            self.last_word_was_identifier = True
+
+        else:
+            self.keypresser.emit_keypresses(word)
+            self.last_word_was_identifier = False
+
+
+##      utterance = utterance.lower()
+
+##      # silly padding at end to help dumb matching
+##      utterance = utterance + ' '
+
+##      while len(utterance) > 0:
+
+##          matched = False
+##          for cmd in COMMAND_DEF:
+##              if utterance[:len(cmd)+1] == cmd+' ':
+##                  # strip out successfully matched command
+##                  utterance = utterance[len(cmd)+1:]
+##                  self.last_word_was_identifier = False
+
+##                  if COMMAND_DEF[cmd] is not None:
+##                      # normal commands
+##                      print ("Emitting translated keypress command: " + cmd, end="\r\n")
+##                      self.keypresser.emit_keypresses(COMMAND_DEF[cmd])
+##                  else:
+##                      # system commands
+##                      print ("Emitting system comand: " + cmd, end="\r\n")
+##                      #system_command(cmd)
+
+##                  matched = True
+##                  break
+##          if matched is False:
+##              text = utterance[:utterance.find(' ')]
+##              print ("Emitting literal ({0})".format(text), end="\r\n")
+##              if self.last_word_was_identifier is True:
+##                  self.keypresser.emit_keypresses(self.identified_separator)
+##              self.keypresser.emit_keypresses(text)
+##              self.last_word_was_identifier = True
+##              # skip to next word
+##              utterance = utterance[len(text)+1:]
 
 
 class Keypresser(object):
     def __init__(self):
         self.kb = pykeyboard.PyKeyboard()
         self.commands_enabled = True
-        self.mode = MODE_DICTATION
+        self.mode_code = ModeCode(self)
+        self.mode_dictation = ModeDictation(self)
+        self.current_mode = self.mode_dictation
+        self.current_mode.switch_to()
+        self._words_in = input_word_generator()
+
+    def next_input_fragments(self, num=1):
+        output = ''
+        while num > 0:
+            output += self._words_in.next()
+            num -= 1
+        return output
 
     def loop(self):
-        words_in = input_word_generator()
 
         while True:
-            word = words_in.next()
+            word = self.next_input_fragments()
             print ("Yielded "+repr(word), end="\r\n")
 
             # special handling of mode change command
-            if word == 'mode':
-                wanted_mode = words_in.next()
-                print ("wanted mode:" +repr(wanted_mode), end="\r\n")
+            if word.lower() == 'mode':
+                # next 2 fragments (1 is space)
+                wanted_mode = self.next_input_fragments(2).strip().lower()
+                print ("Wanted mode: ", wanted_mode, end="\r\n")
+
                 if wanted_mode == 'code':
-                    self.mode = MODE_CODE
                     print ("ENTERED MODE CODE", end="\r\n")
+                    self.current_mode = self.mode_code
+                    self.current_mode.switch_to()
+
                 elif wanted_mode == 'dictation':
-                    self.mode = MODE_DICTATION
                     print ("ENTERED MODE DICTATION", end="\r\n")
-                elif self.mode == MODE_DICTATION:
-                    # didn't get a valid mode command. in dictation mode
-                    # just type out what was said
-                    self.emit('mode ' + wanted_mode + ' ')
+                    self.current_mode = self.mode_dictation
+                    self.current_mode.switch_to()
+
+                else:
+                    # didn't get a valid mode command. pass words
+                    # to speech mode parse method
+                    self.current_mode.parse('mode')
+                    self.current_mode.parse(wanted_mode)
+
                 continue
 
-            if self.mode == MODE_DICTATION:
-                self.emit(word + ' ')
-            else:
-                self.mode_code_parse(word)
+            self.current_mode.parse(word)
 
     def emit_modified(self, char, modifier):
         self.kb.press_key(modifier)
@@ -226,50 +341,6 @@ class Keypresser(object):
             else:
                 self.kb.tap_key(keypresses[0])
                 keypresses = keypresses[1:]
-
-    def mode_code_parse(self, utterance):
-
-        def system_command(cmd):
-            if cmd == "system on":
-                self.commands_enabled = True
-                print ("Recognition ON")
-            elif cmd == "system off":
-                self.commands_enabled = False
-                print ("Recognition OFF")
-
-        print ("CHUNK ({0})".format(utterance), end="\r\n")
-
-        # silly padding at end to help dumb matching
-        utterance = utterance + ' '
-
-        while len(utterance) > 0:
-
-            matched = False
-            for cmd in COMMAND_DEF:
-                if utterance[:len(cmd)+1] == cmd+' ':
-                    # strip out successfully matched command
-                    utterance = utterance[len(cmd)+1:]
-
-                    if self.commands_enabled is False:
-                        print ("Note - commands disabled. Say 'Recognition on' to enable", end="\r\n")
-
-                    if COMMAND_DEF[cmd] is not None and self.commands_enabled:
-                        # normal commands
-                        print ("Emitting translated keypress command: " + cmd, end="\r\n")
-                        self.emit_keypresses(COMMAND_DEF[cmd])
-                    else:
-                        # system commands
-                        print ("Emitting system comand: " + cmd, end="\r\n")
-                        system_command(cmd)
-
-                    matched = True
-                    break
-            if matched is False:
-                text = utterance[:utterance.find(' ')]
-                print ("Emitting literal ({0})".format(text), end="\r\n")
-                self.emit_keypresses(text)
-                # skip to next word
-                utterance = utterance[len(text)+1:]
 
 if __name__ == '__main__':
     kp = Keypresser()
