@@ -7,113 +7,123 @@ import sys
 
 ALPHABET = [
     'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf',
-    'hotel', 'india', 'juliett', 'kilo', 'lima', 'mike',
+    'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike',
     'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango',
     'uniform', 'victor', 'whiskey', 'x-ray', 'yankee', 'zebra'
 ]
 
-COMMAND_DEF = {
-    # system commands
-    'system off': None,
-    'system on': None,
+NUMBERS = [
+    (1, 'one'), (2, 'two'), (3, 'three'), (4, 'four'), (5, 'five'),
+    (6, 'six'), (7, 'seven'), (8, 'eight'), (9, 'nine'), (10, 'ten')
+]
+
+CODE_COMMANDS = {
+    'big': {},
+    'control': {},
+    'alternate': {},
+
+    'escape': '<Esc>',
+    'delete': '<BS>',
+    'tab': '<Tab>',
+
+    'quote': '"',
+
+    'plus': ' + ',
+    'minus': ' - ',
+    'times': ' * ',
+    'divided': {'by': ' / '},
+    'equals': ' = ',
+    'not': {'equals': ' != '},
+    'double': {'equals': ' == '},
+    'triple': {
+        'equals': ' === ',
+        'not': {'equals': ' !== '}
+    },
+    'greater': {
+        'than': ' > ',
+        'equals': ' >= '
+    },
+    'less': {
+        'than': ' < ',
+        'equals': ' <= '
+    },
+    'plus': {
+        'equals': ' += '
+    },
+    'minus': {
+        'equals': ' -= '
+    },
+    '&&': ' && ',  # dragon turns 'logical and' into this
+    '||': ' || ',
 }
 
 # add lower-case, upper-case, control and alt letters
 for word in ALPHABET:
-    COMMAND_DEF[word] = word[0]
-    COMMAND_DEF['big {0}'.format(word)] = word[0].upper()
-    COMMAND_DEF['control {0}'.format(word)] = '<C-{0}>'.format(word[0])
-    #currently disabled in grammar
-    COMMAND_DEF['alt {0}'.format(word)] = '<A-{0}>'.format(word[0])
+    CODE_COMMANDS[word] = word[0]
+    CODE_COMMANDS['big'][word] = word[0].upper()
+    CODE_COMMANDS['control'][word] = '<C-{0}>'.format(word[0])
+    CODE_COMMANDS['alternate'][word] = '<A-{0}>'.format(word[0])
 
-for i in range(0, 10):
-    COMMAND_DEF['alt {0}'.format(i)] = '<A-{0}>'.format(i)
+# alt-number
+for i in NUMBERS:
+    CODE_COMMANDS['alternate'][i[0]] = '<A-{0}>'.format(i[0])
+    CODE_COMMANDS['alternate'][i[1]] = '<A-{0}>'.format(i[0])
 
-COMMAND_DEF.update({
-    'string': None,
-    'number': None,
 
-    # generic keypress stuff
-    '9': '9',
-    '8': '8',
-    '7': '7',
-    '6': '6',
-    '5': '5',
-    '4': '4',
-    '3': '3',
-    '2': '2',
-    '1': '1',
-    '0': '0',
-    '10': '10',
+#   COMMAND_DEF['big {0}'.format(word)] = word[0].upper()
+#   COMMAND_DEF['control {0}'.format(word)] = '<C-{0}>'.format(word[0])
+#   #currently disabled in grammar
+#   COMMAND_DEF['alt {0}'.format(word)] = '<A-{0}>'.format(word[0])
+#COMMAND_DEF = {
+#}
+#COMMAND_DEF.update({
 
-    'space': ' ',
-    'key': None,
-    'escape': '<Esc>',
-    'new line': '<Return>',
-    'delete': '<BS>',
-    'tab': '<Tab>',
+#   'exclamation': '!',
+#   'quote': '"',
+#   'dollar': '$',
+#   'percent': '%',
+#   'acute': '^',
+#   'ampersand': '&',
+#   'star': '*',
+#   'bracket': '(',
+#   'unbracket': ')',
+#   #'raw minus': '-',
+#   #'raw plus': '+',
+#   #'raw equals': '=',
+#   'underscore': '_',
+#   'index': '[',
+#   'unindex': ']',
+#   'brace': '{',
+#   'unbrace': '}',
+#   'angle': '<',
+#   'unangle': '>',
+#   'hashtag': '#',
+#   'apostrophe': '\'',
+#   'colon': ':',
+#   'clause': ';',
+#   'curly thing': '~',
+#   'curly at': '@',
+#   'tick': ',',
+#   'dot': '.',
+#   'question': '?',
+#   'slash': '/',
+#   'pipe': '|',
+#   'backslash': '\\',
+#   'backtick': '`',
 
-    'exclamation': '!',
-    'quote': '"',
-    'dollar': '$',
-    'percent': '%',
-    'acute': '^',
-    'ampersand': '&',
-    'star': '*',
-    'bracket': '(',
-    'unbracket': ')',
-    #'raw minus': '-',
-    #'raw plus': '+',
-    #'raw equals': '=',
-    'underscore': '_',
-    'index': '[',
-    'unindex': ']',
-    'brace': '{',
-    'unbrace': '}',
-    'angle': '<',
-    'unangle': '>',
-    'hashtag': '#',
-    'apostrophe': '\'',
-    'colon': ':',
-    'clause': ';',
-    'curly thing': '~',
-    'curly at': '@',
-    'tick': ',',
-    'dot': '.',
-    'question': '?',
-    'slash': '/',
-    'pipe': '|',
-    'backslash': '\\',
-    'backtick': '`',
-
-    'assign': ' = ',
-    'equals': ' == ',
-    'plus': ' + ',
-    'minus': ' - ',
-    'times': ' * ',
-    'divided by': ' / ',
-    'not equals': ' != ',
-    #'code percent': ' % ',
-    'greater than': ' > ',
-    'less than': ' < ',
-    'logical or': ' || ',
-    'logical and': ' && ',
-
-   #'keyword class': 'class ',
-    'keyword function': 'function',
-    'keyword else': 'else',
-    'keyword break': 'break',
-    'keyword continue': 'continue',
-    'keyword return': 'return',
-   #'keyword for': 'for ',
-   #'keyword if': 'if ',
-   #'keyword python true': 'True',
-   #'keyword python false': 'False',
-   #'keyword python self': 'self',
-   #'keyword python deaf': 'def ',
-   #'keyword python import': 'import ',
-   #'keyword python none': 'None',
-})
+#   'assign': ' =',
+#   'equals': ' ==',
+#   'plus': ' +',
+#   'minus': ' -',
+#   'times': ' *',
+#   'divided by': ' /',
+#   'not equals': ' !=',
+#   #'code percent': ' % ',
+#   'greater than': ' >',
+#   'less than': ' <',
+#   'logical or': ' ||',
+#   'logical and': ' &&',
+#)
 
 
 def input_word_generator():
@@ -185,78 +195,89 @@ class ModeCode(SpeechMode):
     def switch_to(self):
         super(ModeCode, self).__init__()
         self.last_word_was_identifier = False
+        self.encountered_space_after_identifier = False
+
+    def handle_as_command(self, word):
+        # Traverses CODE_COMMANDS tree seeing if the spoken commands
+        # can match. if so issue command keypresses, if not then push
+        # back the keys we have peeked at so they can be handled as
+        # normal voice entry.
+        def match_command(word, command_tree):
+            if word in command_tree:
+                if isinstance(command_tree[word], dict):
+                    _space = self.keypresser.next_input_fragment()
+                    next_word = self.keypresser.next_input_fragment()
+                    if match_command(next_word.lower(), command_tree[word]):
+                        return True
+                    else:
+                        self.keypresser.push_back_fragment(next_word)
+                        self.keypresser.push_back_fragment(_space)
+                        return False
+                elif isinstance(command_tree[word], basestring):
+                    # matched a command finally! issue it
+                    self.keypresser.emit_keypresses(command_tree[word])
+                    return True
+                else:
+                    assert False
+
+        return match_command(word, CODE_COMMANDS)
 
     def parse(self, word):
         word = word.lower()
+        if len(word) == 0:
+            return
+
         print ("CODE ({0})".format(word), end="\r\n")
 
         # special command to change code language
         if word == 'language':
             # next 2 fragments (1 is space)
-            wanted_lang = self.keypresser.next_input_fragments(2).strip().lower()
+            _space = self.keypresser.next_input_fragment()
+            wanted_lang = self.keypresser.next_input_fragment().lower()
             if wanted_lang == 'javascript':
                 self.language = LANG_JAVASCRIPT
                 print("LANGUAGE JAVASCRIPT")
+                return
             elif wanted_lang == 'pie':
                 self.language = LANG_PYTHON
                 print("LANGUAGE PYTHON")
+                return
+            else:
+                # push back those 2 words we peeked at since 'language' is
+                # going to be handled as an identifier
+                self.keypresser.push_back_fragment(wanted_lang)
+                self.keypresser.push_back_fragment(_space)
 
+        if word == ' ':
+            # we don't echo the spaces in code mode, since spaces are generally
+            # inserted by specific operator commands
+            if self.last_word_was_identifier:
+                self.encountered_space_after_identifier = True
+            #else:
+            #    self.keypresser.emit_keypresses(' ')
             return
 
-        elif word == ' ':
-            if self.last_word_was_identifier:
-                if self.language == LANG_PYTHON:
-                    self.keypresser.emit_keypresses('_')
-            else:
-                self.keypresser.emit_keypresses(' ')
+        if self.handle_as_command(word):
+            self.last_word_was_identifier = False
+            return
 
         elif word.isalpha():
             # part of an identifier
-            if self.last_word_was_identifier and self.language == LANG_JAVASCRIPT:
-                # camel-case identifiers
-                word = word[0].upper() + word[1:]
+            if self.last_word_was_identifier:
+                if self.language == LANG_JAVASCRIPT:
+                    # camel-case identifiers
+                    word = word[0].upper() + word[1:]
+                elif self.language == LANG_PYTHON and self.encountered_space_after_identifier:
+                    self.keypresser.emit_keypresses('_')
+
             self.keypresser.emit_keypresses(word)
             self.last_word_was_identifier = True
+            self.encountered_space_after_identifier = False
 
         else:
+            # symbol, number or some other shit
             self.keypresser.emit_keypresses(word)
             self.last_word_was_identifier = False
-
-
-##      utterance = utterance.lower()
-
-##      # silly padding at end to help dumb matching
-##      utterance = utterance + ' '
-
-##      while len(utterance) > 0:
-
-##          matched = False
-##          for cmd in COMMAND_DEF:
-##              if utterance[:len(cmd)+1] == cmd+' ':
-##                  # strip out successfully matched command
-##                  utterance = utterance[len(cmd)+1:]
-##                  self.last_word_was_identifier = False
-
-##                  if COMMAND_DEF[cmd] is not None:
-##                      # normal commands
-##                      print ("Emitting translated keypress command: " + cmd, end="\r\n")
-##                      self.keypresser.emit_keypresses(COMMAND_DEF[cmd])
-##                  else:
-##                      # system commands
-##                      print ("Emitting system comand: " + cmd, end="\r\n")
-##                      #system_command(cmd)
-
-##                  matched = True
-##                  break
-##          if matched is False:
-##              text = utterance[:utterance.find(' ')]
-##              print ("Emitting literal ({0})".format(text), end="\r\n")
-##              if self.last_word_was_identifier is True:
-##                  self.keypresser.emit_keypresses(self.identified_separator)
-##              self.keypresser.emit_keypresses(text)
-##              self.last_word_was_identifier = True
-##              # skip to next word
-##              utterance = utterance[len(text)+1:]
 
 
 class Keypresser(object):
@@ -268,24 +289,31 @@ class Keypresser(object):
         self.current_mode = self.mode_dictation
         self.current_mode.switch_to()
         self._words_in = input_word_generator()
+        # words that might have been pushed back by a parser
+        self._words_queued = []
 
-    def next_input_fragments(self, num=1):
-        output = ''
-        while num > 0:
-            output += self._words_in.next()
-            num -= 1
-        return output
+    def next_input_fragment(self):
+        print ("Word queue: ", self._words_queued, end="\r\n")
+        if len(self._words_queued):
+            return self._words_queued.pop()
+
+        else:
+            return self._words_in.next()
+
+    def push_back_fragment(self, frag):
+        self._words_queued.append(frag)
 
     def loop(self):
 
         while True:
-            word = self.next_input_fragments()
+            word = self.next_input_fragment()
             print ("Yielded "+repr(word), end="\r\n")
 
             # special handling of mode change command
             if word.lower() == 'mode':
                 # next 2 fragments (1 is space)
-                wanted_mode = self.next_input_fragments(2).strip().lower()
+                _space = self.next_input_fragment()
+                wanted_mode = self.next_input_fragment().lower()
                 print ("Wanted mode: ", wanted_mode, end="\r\n")
 
                 if wanted_mode == 'code':
@@ -302,19 +330,27 @@ class Keypresser(object):
                     # didn't get a valid mode command. pass words
                     # to speech mode parse method
                     self.current_mode.parse('mode')
+                    self.current_mode.parse('')
                     self.current_mode.parse(wanted_mode)
 
                 continue
 
             self.current_mode.parse(word)
 
+    def tap_key(self, char):
+        try:
+            self.kb.tap_key(char)
+        except KeyError:
+            # error looking up keysym
+            pass
+
     def emit_modified(self, char, modifier):
         self.kb.press_key(modifier)
-        self.kb.tap_key(char)
+        self.tap_key(char)
         self.kb.release_key(modifier)
 
-    def emit(self, string):
-        self.kb.type_string(string)
+    #def emit(self, string):
+    #    self.kb.type_string(string)
 
     def emit_keypresses(self, keypresses):
         while len(keypresses) > 0:
@@ -339,7 +375,7 @@ class Keypresser(object):
                 self.emit_modified(char, self.kb.alt_key)
                 keypresses = keypresses[5:]
             else:
-                self.kb.tap_key(keypresses[0])
+                self.tap_key(keypresses[0])
                 keypresses = keypresses[1:]
 
 if __name__ == '__main__':
