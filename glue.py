@@ -4,29 +4,29 @@ from __future__ import print_function
 import pykeyboard
 import re
 import sys
+import os
+import functools
 
-ALPHABET = [
-    'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf',
-    'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike',
-    'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango',
-    'uniform', 'victor', 'whiskey', 'x-ray', 'yankee', 'zebra'
-]
+#   ALPHABET = [
+#       'alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot', 'golf',
+#       'hotel', 'india', 'juliet', 'kilo', 'lima', 'mike',
+#       'november', 'oscar', 'papa', 'quebec', 'romeo', 'sierra', 'tango',
+#       'uniform', 'victor', 'whiskey', 'x-ray', 'yankee', 'zulu'
+#   ]
 
-NUMBERS = [
-    (1, 'one'), (2, 'two'), (3, 'three'), (4, 'four'), (5, 'five'),
-    (6, 'six'), (7, 'seven'), (8, 'eight'), (9, 'nine'), (10, 'ten')
-]
+#   NUMBERS = [
+#       (1, 'one'), (2, 'two'), (3, 'three'), (4, 'four'), (5, 'five'),
+#       (6, 'six'), (7, 'seven'), (8, 'eight'), (9, 'nine'), (10, 'ten')
+#   ]
 
 CODE_COMMANDS = {
-    'big': {},
-    'control': {},
-    'alternate': {},
-
     'escape': '<Esc>',
     'delete': '<BS>',
     'tab': '<Tab>',
+    'blank': ' ',
 
     'quote': '"',
+    'raw': {'space': ' '},
 
     'plus': ' + ',
     'minus': ' - ',
@@ -47,27 +47,23 @@ CODE_COMMANDS = {
         'than': ' < ',
         'equals': ' <= '
     },
-    'plus': {
-        'equals': ' += '
-    },
-    'minus': {
-        'equals': ' -= '
-    },
+    'increment': ' += ',
+    'decrement': ' -= ',
     '&&': ' && ',  # dragon turns 'logical and' into this
     '||': ' || ',
 }
 
 # add lower-case, upper-case, control and alt letters
-for word in ALPHABET:
-    CODE_COMMANDS[word] = word[0]
-    CODE_COMMANDS['big'][word] = word[0].upper()
-    CODE_COMMANDS['control'][word] = '<C-{0}>'.format(word[0])
-    CODE_COMMANDS['alternate'][word] = '<A-{0}>'.format(word[0])
+#   for word in ALPHABET:
+#       CODE_COMMANDS[word] = word[0]
+#       CODE_COMMANDS['big'][word] = word[0].upper()
+#       CODE_COMMANDS['control'][word] = '<C-{0}>'.format(word[0])
+#       CODE_COMMANDS['alternate'][word] = '<A-{0}>'.format(word[0])
 
 # alt-number
-for i in NUMBERS:
-    CODE_COMMANDS['alternate'][i[0]] = '<A-{0}>'.format(i[0])
-    CODE_COMMANDS['alternate'][i[1]] = '<A-{0}>'.format(i[0])
+#for i in NUMBERS:
+#    CODE_COMMANDS['alternate'][i[0]] = '<A-{0}>'.format(i[0])
+#    CODE_COMMANDS['alternate'][i[1]] = '<A-{0}>'.format(i[0])
 
 
 #   COMMAND_DEF['big {0}'.format(word)] = word[0].upper()
@@ -126,6 +122,12 @@ for i in NUMBERS:
 #)
 
 
+def desktop_notification(message):
+    pass
+    #os.system("zenity --notification --text='{0}' &".format(message))
+    #os.system("echo 'message: blah' | zenity --notification --listen'")
+
+
 def input_word_generator():
     import tty
     import time
@@ -176,108 +178,156 @@ class ModeDictation(SpeechMode):
 
     def __init__(self, keypresser):
         self.keypresser = keypresser
+        self.just_switched_to_dictation = True
 
     def switch_to(self):
         super(ModeDictation, self).__init__()
+        self.just_switched_to_dictation = True
 
     def parse(self, word):
+        if word == ' ' and self.just_switched_to_dictation:
+            # eat the first space after switching to this mode,
+            # since it is spurious
+            self.just_switched_to_dictation = False
+
+            word = self.keypresser.next_input_fragment()
+            # capitalize first word (since in this case Dragon won't do it for us)
+            word = word[0].upper() + word[1:]
+
         self.keypresser.emit_keypresses(word)
 
-LANG_PYTHON = 0
-LANG_JAVASCRIPT = 1
 
 class ModeCode(SpeechMode):
 
+    LANG_PYTHON = {
+        'name': 'Python'
+    }
+    LANG_JAVASCRIPT = {
+        'name': 'JavaScript'
+    }
+    IDENTIFIER_CAPITAL = 0
+    IDENTIFIER_CAMEL = 1
+    IDENTIFIER_UNDERSCORE = 2
+    IDENTIFIER_HYPHEN = 3
+    IDENTIFIER_SPACEY = 4
+
     def __init__(self, keypresser):
         self.keypresser = keypresser
-        self.language = LANG_PYTHON
+        self.language = ModeCode.LANG_PYTHON
+        self.key_mods = set([])
 
     def switch_to(self):
         super(ModeCode, self).__init__()
+        self.identifier_type = None
+        self.next_letter_big = False
+        self.next_letter_control = False
+        self.next_letter_alt = False
         self.last_word_was_identifier = False
         self.encountered_space_after_identifier = False
 
-    def handle_as_command(self, word):
-        # Traverses CODE_COMMANDS tree seeing if the spoken commands
-        # can match. if so issue command keypresses, if not then push
-        # back the keys we have peeked at so they can be handled as
-        # normal voice entry.
-        def match_command(word, command_tree):
-            if word in command_tree:
-                if isinstance(command_tree[word], dict):
-                    _space = self.keypresser.next_input_fragment()
-                    next_word = self.keypresser.next_input_fragment()
-                    if match_command(next_word.lower(), command_tree[word]):
-                        return True
-                    else:
-                        self.keypresser.push_back_fragment(next_word)
-                        self.keypresser.push_back_fragment(_space)
-                        return False
-                elif isinstance(command_tree[word], basestring):
-                    # matched a command finally! issue it
-                    self.keypresser.emit_keypresses(command_tree[word])
-                    return True
-                else:
-                    assert False
+    def set_key_mod(self, val):
+        self.key_mods.add(val)
 
-        return match_command(word, CODE_COMMANDS)
+    def emit_keypresses(self, keys):
+        if 'shift' in self.key_mods:
+            keys = keys[0].upper() + keys[1:]
+        if 'control' in self.key_mods:
+            self.keypresser.emit_keypresses('<C-{0}>'.format(keys[0].lower()))
+            keys = keys[1:]
+        if 'alternate' in self.key_mods:
+            self.keypresser.emit_keypresses('<A-{0}>'.format(keys[0].lower()))
+
+        if keys != ' ':
+            # wipe modifiers on all keys but space
+            # XXX not space because flow will be: ('big', ' ', 'word')
+            self.key_mods = set([])
+
+        if len(keys) > 0:
+            self.keypresser.emit_keypresses(keys)
+
+    def handle_as_command(self, word):
+        return self.keypresser.match_command(word, CODE_COMMANDS)
+
+    def change_language(self, lang):
+        self.start_identifier(None)
+        self.language = lang
+        print("LANGUAGE ", lang['name'])
+        desktop_notification('Language: ' + lang['name'])
+
+    def start_identifier(self, type):
+        self.identifier_type = type
+        self.last_word_was_identifier = False
+        self.encountered_space_after_identifier = False
 
     def parse(self, word):
         word = word.lower()
         if len(word) == 0:
             return
 
-        print ("CODE ({0})".format(word), end="\r\n")
+        #print ("CODE ({0})".format(word), end="\r\n")
 
-        # special command to change code language
-        if word == 'language':
-            # next 2 fragments (1 is space)
-            _space = self.keypresser.next_input_fragment()
-            wanted_lang = self.keypresser.next_input_fragment().lower()
-            if wanted_lang == 'javascript':
-                self.language = LANG_JAVASCRIPT
-                print("LANGUAGE JAVASCRIPT")
-                return
-            elif wanted_lang == 'pie':
-                self.language = LANG_PYTHON
-                print("LANGUAGE PYTHON")
-                return
-            else:
-                # push back those 2 words we peeked at since 'language' is
-                # going to be handled as an identifier
-                self.keypresser.push_back_fragment(wanted_lang)
-                self.keypresser.push_back_fragment(_space)
+        # special command to change code language or enter variable names
+        if self.keypresser.match_command(
+            word, {
+                'language': {
+                    'javascript': functools.partial(self.change_language, ModeCode.LANG_JAVASCRIPT),
+                    'pie': functools.partial(self.change_language, ModeCode.LANG_PYTHON),
+                    'python': functools.partial(self.change_language, ModeCode.LANG_PYTHON),
+                },
+                'capital': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAPITAL),
+                'camel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAMEL),
+                'line': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_UNDERSCORE),
+                'strike': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_HYPHEN),
+                'spacey': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_SPACEY),
+                'big': functools.partial(self.set_key_mod, 'shift'),
+                'alternate': functools.partial(self.set_key_mod, 'alternate'),
+                'control': functools.partial(self.set_key_mod, 'control'),
+            }
+        ):
+            # matched language command. done
+            print ("Command "+word, end="\r\n")
+            return
 
         if word == ' ':
             # we don't echo the spaces in code mode, since spaces are generally
             # inserted by specific operator commands
             if self.last_word_was_identifier:
                 self.encountered_space_after_identifier = True
-            #else:
-            #    self.keypresser.emit_keypresses(' ')
             return
 
         if self.handle_as_command(word):
-            self.last_word_was_identifier = False
+            self.start_identifier(None)
             return
 
-        elif word.isalpha():
-            # part of an identifier
-            if self.last_word_was_identifier:
-                if self.language == LANG_JAVASCRIPT:
-                    # camel-case identifiers
-                    word = word[0].upper() + word[1:]
-                elif self.language == LANG_PYTHON and self.encountered_space_after_identifier:
-                    self.keypresser.emit_keypresses('_')
+        elif word[0].isalpha():
+            # if not part of an identifier then ignore
+            if self.identifier_type is None:
+                self.start_identifier(None)
+                #print ("Word outside of identifier: " + word + ". Emitting first letter.")
+                self.emit_keypresses(word[0])
+                return
 
-            self.keypresser.emit_keypresses(word)
+            if self.identifier_type == ModeCode.IDENTIFIER_CAPITAL:
+                word = word[0].upper() + word[1:]
+
+            if self.last_word_was_identifier:
+                if self.identifier_type == ModeCode.IDENTIFIER_CAMEL or \
+                   self.identifier_type == ModeCode.IDENTIFIER_CAPITAL:
+                    word = word[0].upper() + word[1:]
+                elif self.identifier_type == ModeCode.IDENTIFIER_UNDERSCORE and self.encountered_space_after_identifier:
+                    self.emit_keypresses('_')
+                elif self.identifier_type == ModeCode.IDENTIFIER_HYPHEN and self.encountered_space_after_identifier:
+                    self.emit_keypresses('-')
+                elif self.identifier_type == ModeCode.IDENTIFIER_SPACEY and self.encountered_space_after_identifier:
+                    self.emit_keypresses(' ')
+
+            self.emit_keypresses(word)
             self.last_word_was_identifier = True
             self.encountered_space_after_identifier = False
 
         else:
             # symbol, number or some other shit
-            self.keypresser.emit_keypresses(word)
-            self.last_word_was_identifier = False
+            self.emit_keypresses(word)
 
 
 class Keypresser(object):
@@ -286,17 +336,15 @@ class Keypresser(object):
         self.commands_enabled = True
         self.mode_code = ModeCode(self)
         self.mode_dictation = ModeDictation(self)
-        self.current_mode = self.mode_dictation
+        self.current_mode = self.mode_code
         self.current_mode.switch_to()
         self._words_in = input_word_generator()
         # words that might have been pushed back by a parser
         self._words_queued = []
 
     def next_input_fragment(self):
-        print ("Word queue: ", self._words_queued, end="\r\n")
         if len(self._words_queued):
             return self._words_queued.pop()
-
         else:
             return self._words_in.next()
 
@@ -305,37 +353,56 @@ class Keypresser(object):
 
     def loop(self):
 
+        def _enter_mode_code():
+            print ("ENTERED MODE CODE", end="\r\n")
+            desktop_notification('Voice entry mode: Code')
+            self.current_mode = self.mode_code
+            self.current_mode.switch_to()
+
+        def _enter_mode_dictation():
+            print ("ENTERED MODE DICTATION", end="\r\n")
+            desktop_notification('Voice entry mode: Dictation')
+            self.current_mode = self.mode_dictation
+            self.current_mode.switch_to()
+
         while True:
             word = self.next_input_fragment()
-            print ("Yielded "+repr(word), end="\r\n")
 
             # special handling of mode change command
-            if word.lower() == 'mode':
-                # next 2 fragments (1 is space)
-                _space = self.next_input_fragment()
-                wanted_mode = self.next_input_fragment().lower()
-                print ("Wanted mode: ", wanted_mode, end="\r\n")
-
-                if wanted_mode == 'code':
-                    print ("ENTERED MODE CODE", end="\r\n")
-                    self.current_mode = self.mode_code
-                    self.current_mode.switch_to()
-
-                elif wanted_mode == 'dictation':
-                    print ("ENTERED MODE DICTATION", end="\r\n")
-                    self.current_mode = self.mode_dictation
-                    self.current_mode.switch_to()
-
-                else:
-                    # didn't get a valid mode command. pass words
-                    # to speech mode parse method
-                    self.current_mode.parse('mode')
-                    self.current_mode.parse('')
-                    self.current_mode.parse(wanted_mode)
-
+            if self.match_command(
+                word.lower(), {
+                    'mode': {
+                        'code': _enter_mode_code,
+                        'dictation': _enter_mode_dictation
+                    }
+                }
+            ):
                 continue
 
             self.current_mode.parse(word)
+
+    def match_command(self, word, command_tree):
+        # Traverses command_tree seeing if the spoken commands
+        # can match. if so issue command keypresses, if not then push
+        # back the keys we have peeked at so they can be handled by other routines.
+        if word in command_tree:
+            if isinstance(command_tree[word], dict):
+                _space = self.next_input_fragment()
+                next_word = self.next_input_fragment()
+                if self.match_command(next_word.lower(), command_tree[word]):
+                    return True
+                else:
+                    self.push_back_fragment(next_word)
+                    self.push_back_fragment(_space)
+                    return False
+            elif isinstance(command_tree[word], basestring):
+                # matched a command finally! issue it
+                self.emit_keypresses(command_tree[word])
+                return True
+            else:
+                # assume action is callable
+                command_tree[word]()
+                return True
 
     def tap_key(self, char):
         try:
@@ -353,6 +420,7 @@ class Keypresser(object):
     #    self.kb.type_string(string)
 
     def emit_keypresses(self, keypresses):
+        print ("KP: " + repr(keypresses), end='\r\n')
         while len(keypresses) > 0:
             if keypresses[:5] == '<Esc>':
                 self.kb.tap_key(self.kb.escape_key)
