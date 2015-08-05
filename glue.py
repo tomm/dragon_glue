@@ -379,9 +379,13 @@ class ModeCode(SpeechMode):
 
         else:
             # symbol, number or some other shit
-            if word != '.':
+            if word == '.':
+                # make sure camel identifiers work right!
+                self.last_word_was_identifier = False
+            else:
                 # all symbols except the dot end an identifier
                 self.start_identifier(None)
+
             self.emit_keypresses(word[0])
             self.parse(word[1:])
 
