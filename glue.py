@@ -26,7 +26,10 @@ CODE_COMMANDS = {
     'blank': ' ',
 
     'quote': '"',
+    'tick': '\'',
     'raw': {'space': ' '},
+    'square': '[',
+    'unsquare': ']',
 
     'plus': ' + ',
     'minus': ' - ',
@@ -51,6 +54,23 @@ CODE_COMMANDS = {
     'decrement': ' -= ',
     '&&': ' && ',  # dragon turns 'logical and' into this
     '||': ' || ',
+
+    '\x1b[11~': '<F1>',
+    '\x1b[12~': '<F2>',
+    '\x1b[13~': '<F3>',
+    '\x1b[14~': '<F4>',
+    '\x1b[15~': '<F5>',
+    '\x1b[17~': '<F6>',
+    '\x1b[18~': '<F7>',
+    '\x1b[19~': '<F8>',
+    '\x1b[20~': '<F9>',
+    '\x1b[21~': '<F10>',
+    '\x1b[23~': '<F11>',
+    '\x1b[24~': '<F12>',
+    '\x1b[a': '<Up>',
+    '\x1b[b': '<Down>',
+    '\x1b[d': '<Left>',
+    '\x1b[c': '<Right>',
 }
 
 # add lower-case, upper-case, control and alt letters
@@ -151,7 +171,16 @@ def input_word_generator():
             if word == '':
                 word_timeout = time.time() + WORD_TIMEOUT
 
-            if char == '\r' or char == '\n':
+            if char == '\x1b':
+                # terminal escape code for special keys. read to terminating ~
+                word += char
+                # XXX note will timeout and be emitted for sequences not ending ~,
+                # but should recognise them more sanely...
+                while word[-1] != '~':
+                    word += sys.stdin.read(1)
+                yield(word)
+                word = ''
+            elif char == '\r' or char == '\n':
                 yield(word)
                 yield('\n')
                 word = ''
@@ -159,6 +188,9 @@ def input_word_generator():
                 yield(word)
                 yield(' ')
                 word = ''
+            elif len(word)>0 and char.isalpha() != word[-1].isalpha():
+                yield(word)
+                word = char
             else:
                 word += char
         except IOError:
@@ -210,6 +242,8 @@ class ModeCode(SpeechMode):
     IDENTIFIER_UNDERSCORE = 2
     IDENTIFIER_HYPHEN = 3
     IDENTIFIER_SPACEY = 4
+    IDENTIFIER_NO_SEPARATOR = 5
+    IDENTIFIER_ALLCAPS_SPACEY = 6
 
     def __init__(self, keypresser):
         self.keypresser = keypresser
@@ -219,13 +253,13 @@ class ModeCode(SpeechMode):
     def switch_to(self):
         super(ModeCode, self).__init__()
         self.identifier_type = None
-        self.next_letter_big = False
-        self.next_letter_control = False
-        self.next_letter_alt = False
         self.last_word_was_identifier = False
         self.encountered_space_after_identifier = False
 
     def set_key_mod(self, val):
+        if val != 'big':
+            # end identifier runs on pressing mod keys (except shift)
+            self.start_identifier(None)
         self.key_mods.add(val)
 
     def emit_keypresses(self, keys):
@@ -236,6 +270,10 @@ class ModeCode(SpeechMode):
             keys = keys[1:]
         if 'alternate' in self.key_mods:
             self.keypresser.emit_keypresses('<A-{0}>'.format(keys[0].lower()))
+            keys = keys[1:]
+        if 'win' in self.key_mods:
+            self.keypresser.emit_keypresses('<Mod4-{0}>'.format(keys[0].lower()))
+            keys = keys[1:]
 
         if keys != ' ':
             # wipe modifiers on all keys but space
@@ -274,14 +312,19 @@ class ModeCode(SpeechMode):
                     'pie': functools.partial(self.change_language, ModeCode.LANG_PYTHON),
                     'python': functools.partial(self.change_language, ModeCode.LANG_PYTHON),
                 },
+                'sequel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_ALLCAPS_SPACEY),
                 'capital': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAPITAL),
                 'camel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAMEL),
                 'line': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_UNDERSCORE),
                 'strike': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_HYPHEN),
                 'spacey': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_SPACEY),
+                'squeeze': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_NO_SEPARATOR),
                 'big': functools.partial(self.set_key_mod, 'shift'),
                 'alternate': functools.partial(self.set_key_mod, 'alternate'),
                 'control': functools.partial(self.set_key_mod, 'control'),
+                'windows': {
+                    'key': functools.partial(self.set_key_mod, 'win'),
+                }
             }
         ):
             # matched language command. done
@@ -308,7 +351,14 @@ class ModeCode(SpeechMode):
                 return
 
             if self.identifier_type == ModeCode.IDENTIFIER_CAPITAL:
-                word = word[0].upper() + word[1:]
+                if word == 'id':
+                    # special case for id, which we want all caps
+                    word = 'ID'
+                else:
+                    # other words just capitalize first letter
+                    word = word[0].upper() + word[1:]
+            elif self.identifier_type == ModeCode.IDENTIFIER_ALLCAPS_SPACEY:
+                word = word.upper()
 
             if self.last_word_was_identifier:
                 if self.identifier_type == ModeCode.IDENTIFIER_CAMEL or \
@@ -320,6 +370,8 @@ class ModeCode(SpeechMode):
                     self.emit_keypresses('-')
                 elif self.identifier_type == ModeCode.IDENTIFIER_SPACEY and self.encountered_space_after_identifier:
                     self.emit_keypresses(' ')
+                elif self.identifier_type == ModeCode.IDENTIFIER_ALLCAPS_SPACEY and self.encountered_space_after_identifier:
+                    self.emit_keypresses(' ')
 
             self.emit_keypresses(word)
             self.last_word_was_identifier = True
@@ -327,7 +379,11 @@ class ModeCode(SpeechMode):
 
         else:
             # symbol, number or some other shit
-            self.emit_keypresses(word)
+            if word != '.':
+                # all symbols except the dot end an identifier
+                self.start_identifier(None)
+            self.emit_keypresses(word[0])
+            self.parse(word[1:])
 
 
 class Keypresser(object):
@@ -344,9 +400,11 @@ class Keypresser(object):
 
     def next_input_fragment(self):
         if len(self._words_queued):
-            return self._words_queued.pop()
+            word = self._words_queued.pop()
         else:
-            return self._words_in.next()
+            word = self._words_in.next()
+        #print('raw: {0}'.format(repr(word)))
+        return word
 
     def push_back_fragment(self, frag):
         self._words_queued.append(frag)
@@ -442,6 +500,26 @@ class Keypresser(object):
                 char = re.match(r'^<A\-(\w)>', keypresses).groups()[0]
                 self.emit_modified(char, self.kb.alt_key)
                 keypresses = keypresses[5:]
+            elif re.match(r'^<Mod4\-(\w)>', keypresses):
+                char = re.match(r'^<Mod4\-(\w)>', keypresses).groups()[0]
+                self.emit_modified(char, self.kb.super_l_key)
+                keypresses = keypresses[8:]
+            elif re.match(r'^<F(\d+)>', keypresses):
+                num = re.match(r'^<F(\d+)>', keypresses).groups()[0]
+                self.kb.tap_key(self.kb.function_keys[int(num)])
+                keypresses = keypresses[3+len(num):]
+            elif keypresses[:4] == '<Up>':
+                self.kb.tap_key(self.kb.up_key)
+                keypresses = keypresses[4:]
+            elif keypresses[:6] == '<Down>':
+                self.kb.tap_key(self.kb.down_key)
+                keypresses = keypresses[6:]
+            elif keypresses[:6] == '<Left>':
+                self.kb.tap_key(self.kb.left_key)
+                keypresses = keypresses[6:]
+            elif keypresses[:7] == '<Right>':
+                self.kb.tap_key(self.kb.right_key)
+                keypresses = keypresses[7:]
             else:
                 self.tap_key(keypresses[0])
                 keypresses = keypresses[1:]
