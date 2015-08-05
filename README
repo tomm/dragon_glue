@@ -1,0 +1,38 @@
+Dragon Glue
+===========
+
+This is intended for people who want to:
+
+ * Code by voice.
+ * On X11.
+ * Using Dragon Naturally Speaking.
+ * Probably using VIM.
+
+You will need to set up Dragon on a windows virtual machine, and SSH into
+your X11 box (with putty or whatever), set up the DISPLAY variable and run
+glue.py, then leave Dragon inputting text into your putty session.
+
+run.sh shows you this sequence of commands.
+
+i haven't attempted to add a large set of editor specific commands,
+andHave instead added what is necessary for keyboard control via speech.
+there are specific commands for entering identifiers for programming
+languages.  for high accuracy and commanding vim the default mode
+is to interpret all non-command words as being single keypresses
+taking the first letter of the word as the intended  keypress.
+
+Single keys:
+============
+utterance: Charlie India whiskey
+keypresses: cia (vim: change word)
+
+Identify entry:
+===============
+utterance: camel self dot parent of node
+keypresses: self.parentOfNode
+
+utterance: line self dot parent of node
+keypresses: self.parent_of_node
+
+You will have to read glue.py for the complete set of identifier entry
+commands.
