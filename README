@@ -28,11 +28,45 @@ keypresses: cia (vim: change word)
 
 Identify entry:
 ===============
-utterance: camel self dot parent of node
-keypresses: self.parentOfNode
+utterance: camel self dot parent of node equals single null
+keypresses: self.parentOfNode = null
 
-utterance: line self dot parent of node
-keypresses: self.parent_of_node
+utterance: line self dot parent of node equals capital none
+keypresses: self.parent_of_node = None
 
-You will have to read glue.py for the complete set of identifier entry
-commands.
+To suppress spaces around operators, and separators around identifiers use
+'squeeze':
+
+utterance: line self dot parent of node squeeze equals capital none
+keypresses: self.parent_of_node=None
+
+Squeeze also applies to identifiers:
+utterance: keyword class capital my class open bracket squeeze base class close bracket
+keypresses: class MyClass(baseclass)
+
+utterance: squeeze self dot parent of node
+keypresses: self.parentofnode
+
+Complete list of identifier commands
+====================================
+
+spell           End identifier (re-enabling single character interpretation of words)
+sequel          IDENTIFIERS LIKE THIS
+capital         IdentifiersLikeThis
+camel           identifiersLikeThis
+line            identifiers_like_this
+strike          identifiers-like-this
+spacey          identifiers like this
+squeeze         identifierslikethis
+keyword         Single word with a space after it.
+single          Single word without a space after it.
+
+Character commands
+==================
+Shorthand for dragon's 'open square bracket' and 'close square bracket' are
+'square' and 'unsquare' (the 2nd isn't a dictionary word and must be added
+to dragon by you).
+
+Other commands
+==============
+You will have to read glue.py for the complete list of commands.

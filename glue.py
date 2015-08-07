@@ -55,6 +55,7 @@ CODE_COMMANDS = {
     '&&': ' && ',  # dragon turns 'logical and' into this
     '||': ' || ',
 
+    '\x7f': '<BS>',
     '\x1b[11~': '<F1>',
     '\x1b[12~': '<F2>',
     '\x1b[13~': '<F3>',
@@ -72,74 +73,6 @@ CODE_COMMANDS = {
     '\x1b[d': '<Left>',
     '\x1b[c': '<Right>',
 }
-
-# add lower-case, upper-case, control and alt letters
-#   for word in ALPHABET:
-#       CODE_COMMANDS[word] = word[0]
-#       CODE_COMMANDS['big'][word] = word[0].upper()
-#       CODE_COMMANDS['control'][word] = '<C-{0}>'.format(word[0])
-#       CODE_COMMANDS['alternate'][word] = '<A-{0}>'.format(word[0])
-
-# alt-number
-#for i in NUMBERS:
-#    CODE_COMMANDS['alternate'][i[0]] = '<A-{0}>'.format(i[0])
-#    CODE_COMMANDS['alternate'][i[1]] = '<A-{0}>'.format(i[0])
-
-
-#   COMMAND_DEF['big {0}'.format(word)] = word[0].upper()
-#   COMMAND_DEF['control {0}'.format(word)] = '<C-{0}>'.format(word[0])
-#   #currently disabled in grammar
-#   COMMAND_DEF['alt {0}'.format(word)] = '<A-{0}>'.format(word[0])
-#COMMAND_DEF = {
-#}
-#COMMAND_DEF.update({
-
-#   'exclamation': '!',
-#   'quote': '"',
-#   'dollar': '$',
-#   'percent': '%',
-#   'acute': '^',
-#   'ampersand': '&',
-#   'star': '*',
-#   'bracket': '(',
-#   'unbracket': ')',
-#   #'raw minus': '-',
-#   #'raw plus': '+',
-#   #'raw equals': '=',
-#   'underscore': '_',
-#   'index': '[',
-#   'unindex': ']',
-#   'brace': '{',
-#   'unbrace': '}',
-#   'angle': '<',
-#   'unangle': '>',
-#   'hashtag': '#',
-#   'apostrophe': '\'',
-#   'colon': ':',
-#   'clause': ';',
-#   'curly thing': '~',
-#   'curly at': '@',
-#   'tick': ',',
-#   'dot': '.',
-#   'question': '?',
-#   'slash': '/',
-#   'pipe': '|',
-#   'backslash': '\\',
-#   'backtick': '`',
-
-#   'assign': ' =',
-#   'equals': ' ==',
-#   'plus': ' +',
-#   'minus': ' -',
-#   'times': ' *',
-#   'divided by': ' /',
-#   'not equals': ' !=',
-#   #'code percent': ' % ',
-#   'greater than': ' >',
-#   'less than': ' <',
-#   'logical or': ' ||',
-#   'logical and': ' &&',
-#)
 
 
 def desktop_notification(message):
@@ -244,10 +177,11 @@ class ModeCode(SpeechMode):
     IDENTIFIER_SPACEY = 4
     IDENTIFIER_NO_SEPARATOR = 5
     IDENTIFIER_ALLCAPS_SPACEY = 6
+    IDENTIFIER_KEYWORD = 7  # one word with a trailing space
+    IDENTIFIER_SINGLE = 8  # one word without a trailing space
 
     def __init__(self, keypresser):
         self.keypresser = keypresser
-        self.language = ModeCode.LANG_PYTHON
         self.key_mods = set([])
 
     def switch_to(self):
@@ -284,13 +218,11 @@ class ModeCode(SpeechMode):
             self.keypresser.emit_keypresses(keys)
 
     def handle_as_command(self, word):
-        return self.keypresser.match_command(word, CODE_COMMANDS)
-
-    def change_language(self, lang):
-        self.start_identifier(None)
-        self.language = lang
-        print("LANGUAGE ", lang['name'])
-        desktop_notification('Language: ' + lang['name'])
+        return self.keypresser.match_command(
+            word,
+            CODE_COMMANDS,
+            strip_spaces_from_keypresses=self.identifier_type == ModeCode.IDENTIFIER_NO_SEPARATOR
+        )
 
     def start_identifier(self, type):
         self.identifier_type = type
@@ -307,11 +239,8 @@ class ModeCode(SpeechMode):
         # special command to change code language or enter variable names
         if self.keypresser.match_command(
             word, {
-                'language': {
-                    'javascript': functools.partial(self.change_language, ModeCode.LANG_JAVASCRIPT),
-                    'pie': functools.partial(self.change_language, ModeCode.LANG_PYTHON),
-                    'python': functools.partial(self.change_language, ModeCode.LANG_PYTHON),
-                },
+                # end identifier entry and return to single keypress mode
+                'spell': functools.partial(self.start_identifier, None),
                 'sequel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_ALLCAPS_SPACEY),
                 'capital': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAPITAL),
                 'camel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAMEL),
@@ -319,6 +248,8 @@ class ModeCode(SpeechMode):
                 'strike': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_HYPHEN),
                 'spacey': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_SPACEY),
                 'squeeze': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_NO_SEPARATOR),
+                'keyword': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_KEYWORD),
+                'single': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_SINGLE),
                 'big': functools.partial(self.set_key_mod, 'shift'),
                 'alternate': functools.partial(self.set_key_mod, 'alternate'),
                 'control': functools.partial(self.set_key_mod, 'control'),
@@ -359,6 +290,16 @@ class ModeCode(SpeechMode):
                     word = word[0].upper() + word[1:]
             elif self.identifier_type == ModeCode.IDENTIFIER_ALLCAPS_SPACEY:
                 word = word.upper()
+
+            elif self.identifier_type == ModeCode.IDENTIFIER_KEYWORD:
+                # keyword is a single lower-case word with a space after it. eg 'class '
+                word = word + ' '
+                self.start_identifier(None)
+
+            elif self.identifier_type == ModeCode.IDENTIFIER_SINGLE:
+                # single is a single lower-case word without a space after it
+                word = word.strip()
+                self.start_identifier(None)
 
             if self.last_word_was_identifier:
                 if self.identifier_type == ModeCode.IDENTIFIER_CAMEL or \
@@ -443,7 +384,7 @@ class Keypresser(object):
 
             self.current_mode.parse(word)
 
-    def match_command(self, word, command_tree):
+    def match_command(self, word, command_tree, strip_spaces_from_keypresses=False):
         # Traverses command_tree seeing if the spoken commands
         # can match. if so issue command keypresses, if not then push
         # back the keys we have peeked at so they can be handled by other routines.
@@ -451,7 +392,7 @@ class Keypresser(object):
             if isinstance(command_tree[word], dict):
                 _space = self.next_input_fragment()
                 next_word = self.next_input_fragment()
-                if self.match_command(next_word.lower(), command_tree[word]):
+                if self.match_command(next_word.lower(), command_tree[word], strip_spaces_from_keypresses):
                     return True
                 else:
                     self.push_back_fragment(next_word)
@@ -459,7 +400,11 @@ class Keypresser(object):
                     return False
             elif isinstance(command_tree[word], basestring):
                 # matched a command finally! issue it
-                self.emit_keypresses(command_tree[word])
+                if strip_spaces_from_keypresses:
+                    cmd = command_tree[word].strip()
+                else:
+                    cmd = command_tree[word]
+                self.emit_keypresses(cmd)
                 return True
             else:
                 # assume action is callable
