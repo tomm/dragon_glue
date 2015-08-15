@@ -47,6 +47,18 @@ keypresses: class MyClass(baseclass)
 utterance: squeeze self dot parent of node
 keypresses: self.parentofnode
 
+Escaping Command Words
+======================
+
+If you want to enter: capitalCityOfScotland
+You must say: capital literal capital city of scotland
+
+Without the 'literal', capital will be assumed to be a (start identifier)
+command.
+
+This escaping works for all commands and expansions that are not actually
+dragon naturally speaking commands.
+
 Complete list of identifier commands
 ====================================
 
@@ -61,11 +73,12 @@ squeeze         identifierslikethis
 keyword         Single word with a space after it.
 single          Single word without a space after it.
 
-Character commands
-==================
-Shorthand for dragon's 'open square bracket' and 'close square bracket' are
-'square' and 'unsquare' (the 2nd isn't a dictionary word and must be added
-to dragon by you).
+Custom words to add to dragon's vocabulary
+==========================================
+
+unangle		- Short for 'close angle bracket'
+unsquare	- Short for 'close square bracket'
+unbracket	- Short for 'close bracket'
 
 Other commands
 ==============
