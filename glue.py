@@ -174,19 +174,74 @@ class ModeDictation(SpeechMode):
         self.keypresser.emit_keypresses(word)
 
 
+class EntryMode(object):
+    def __init__(self, separator, caps, capitalize_first, capitalize_subsequent,
+            end_entry_on, separator_after_last_word, suppress_dragon_spaces):
+        assert caps in (None, 'upper', 'lower')
+        self.separator = separator
+        self.caps = caps
+        self.capitalize_first = capitalize_first
+        self.capitalize_subsequent = capitalize_subsequent
+        self.end_entry_on = end_entry_on
+        self.separator_after_last_word = separator_after_last_word
+        self.suppress_dragon_spaces = suppress_dragon_spaces
+
+    def transform_word(self, word, mode_code):
+        if self.caps:
+            word = getattr(word, self.caps)()
+
+        if self.capitalize_first and mode_code.current_identifier_length == 0:
+            word = word[0].upper() + word[1:]
+
+        if self.capitalize_subsequent and mode_code.current_identifier_length > 0:
+            word = word[0].upper() + word[1:]
+
+        if mode_code.current_identifier_length > 0 and self.separator:
+            # not the first word, so add a separator
+            word = self.separator + word
+
+        return word
+
+
+class CharacterEntryMode(EntryMode):
+    """Single character entry, using first letter of word as character."""
+    def __init__(self):
+        super(CharacterEntryMode, self).__init__('', 'lower', False, False, (), False, True)
+
+    def transform_word(self, word, mode_code):
+        return word[0].lower()
+
+
+class CapitalEntryMode(EntryMode):
+    def __init__(self):
+        super(CapitalEntryMode, self).__init__(None, 'lower', True, True, ('<Esc>', '\n'), False, True)
+
+    def transform_word(self, word, mode_code):
+        word = super(CapitalEntryMode, self).transform_word(word, mode_code)
+
+        # special case. always capitalize all of 'ID'
+        if word.lower() == 'id':
+            return 'ID'
+        else:
+            return word
+
+
 class ModeCode(SpeechMode):
 
-    IDENTIFIER_CAPITAL = 0
-    IDENTIFIER_CAMEL = 1
-    IDENTIFIER_UNDERSCORE = 2
-    IDENTIFIER_HYPHEN = 3
-    IDENTIFIER_SPACEY = 4
-    IDENTIFIER_NO_SEPARATOR = 5
-    IDENTIFIER_ALLCAPS_SPACEY = 6
-    IDENTIFIER_KEYWORD = 7  # one word with a trailing space
-    IDENTIFIER_SINGLE = 8  # one word without a trailing space
-    IDENTIFIER_CONSTANT = 9  # all caps with underscore separators
-    IDENTIFIER_DICTATE = 10  # echo literally what dragon sends us (plus interpret commands)
+    ENTRY_MODES = {
+        'spell': CharacterEntryMode(),
+        'capital': CapitalEntryMode(),
+        'camel': EntryMode(None, 'lower', False, True, ('<Esc>', '\n'), False, True),
+        'line': EntryMode('_', 'lower', False, False, ('<Esc>', '\n'), False, True),
+        'strike': EntryMode('-', 'lower', False, False, ('<Esc>', '\n'), False, True),
+        'spacey': EntryMode(' ', 'lower', False, False, ('<Esc>', '\n'), False, True),
+        'squeeze': EntryMode(None, 'lower', False, False, ('<Esc>', '\n'), False, True),
+        'sequel': EntryMode(' ', 'upper', False, False, ('<Esc>', '\n'), True, True),
+        'keyword': EntryMode(' ', 'lower', False, False, ('<FirstWord>', '<Esc>', '\n'), True, True),
+        'single': EntryMode(None, 'lower', False, False, ('<FirstWord>', '<Esc>', '\n'), False, True),
+        'constant': EntryMode('_', 'upper', False, False, ('<Esc>', '\n'), False, True),
+        'dictate': EntryMode(None, None, True, False, ('<Esc>', '\n'), False, False)
+    }
 
     def __init__(self, keypresser):
         self.keypresser = keypresser
@@ -196,17 +251,16 @@ class ModeCode(SpeechMode):
         self.current_identifier_length = 0
         # just a stack of integer length of previously entered words
         self.undo_stack = []
+        self.entry_mode = ModeCode.ENTRY_MODES['spell']
 
     def switch_to(self):
         super(ModeCode, self).__init__()
-        self.identifier_type = None
-        self.last_word_was_identifier = False
-        self.encountered_space_after_identifier = False
+        self.entry_mode = ModeCode.ENTRY_MODES['spell']
 
     def set_key_mod(self, val):
-        if val != 'big':
+        if val != 'shift':
             # end identifier runs on pressing mod keys (except shift)
-            self.start_identifier(None)
+            self.set_entry_mode('spell')
         self.key_mods.add(val)
 
     def set_escape_next_word(self):
@@ -214,7 +268,12 @@ class ModeCode(SpeechMode):
 
     def emit_keypresses(self, keys, add_to_undo_stack=True):
         if 'shift' in self.key_mods:
-            keys = keys[0].upper() + keys[1:]
+            i = 0
+            for i in xrange(0, len(keys)):
+                if keys[i].isalpha():
+                    break
+            if i < len(keys):
+                keys = keys[0:i] + keys[i].upper() + keys[i+1:]
         if 'control' in self.key_mods:
             self.keypresser.emit_keypresses('<C-{0}>'.format(keys[0].lower()))
             keys = keys[1:]
@@ -244,84 +303,26 @@ class ModeCode(SpeechMode):
         return self.keypresser.match_command(
             word,
             CODE_EXPANSIONS,
-            strip_spaces_from_keypresses=self.identifier_type == ModeCode.IDENTIFIER_NO_SEPARATOR
+            strip_spaces_from_keypresses=self.entry_mode == ModeCode.ENTRY_MODES['squeeze']
         )
 
     def handle_as_command(self, word):
         return self.keypresser.match_command(
             word,
             CODE_COMMANDS,
-            strip_spaces_from_keypresses=self.identifier_type == ModeCode.IDENTIFIER_NO_SEPARATOR
+            strip_spaces_from_keypresses=self.entry_mode == ModeCode.ENTRY_MODES['squeeze']
         )
 
-    def start_identifier(self, type):
+    def set_entry_mode(self, type):
+        if self.current_identifier_length > 0 and self.entry_mode.separator_after_last_word is True:
+            self.emit_keypresses(self.entry_mode.separator)
+
         self.current_identifier_length = 0
-        self.identifier_type = type
-        self.last_word_was_identifier = False
-        self.encountered_space_after_identifier = False
+        self.entry_mode = ModeCode.ENTRY_MODES[type]
 
     def split_identifier(self):
         """and previous operator and start new operator of same type"""
-        self.last_word_was_identifier = False
         self.current_identifier_length = 0
-
-    def parse_identifier(self, word):
-        # all identifier modes except IDENTIFIER_DICTATE ignore dragon's caps
-        if self.identifier_type != ModeCode.IDENTIFIER_DICTATE:
-            word = word.lower()
-
-        # if not part of an identifier then ignore
-        if self.identifier_type is None:
-            self.start_identifier(None)
-            #print ("Word outside of identifier: " + word + ". Emitting first letter.")
-            self.emit_keypresses(word[0])
-
-        else:
-            if self.identifier_type == ModeCode.IDENTIFIER_CAPITAL:
-                if word == 'id':
-                    # special case for id, which we want all caps
-                    word = 'ID'
-                else:
-                    # other words just capitalize first letter
-                    word = word[0].upper() + word[1:]
-
-            elif self.identifier_type == ModeCode.IDENTIFIER_DICTATE:
-                if self.current_identifier_length == 0:
-                    # first word entered in dictate mode should be capitalized
-                    word = word[0].upper() + word[1:]
-
-            elif self.identifier_type == ModeCode.IDENTIFIER_ALLCAPS_SPACEY:
-                word = word.upper() + ' '
-
-            elif self.identifier_type == ModeCode.IDENTIFIER_CONSTANT:
-                word = word.upper()
-
-            elif self.identifier_type == ModeCode.IDENTIFIER_KEYWORD:
-                # keyword is a single lower-case word with a space after it. eg 'class '
-                word = word + ' '
-                self.start_identifier(None)
-
-            elif self.identifier_type == ModeCode.IDENTIFIER_SINGLE:
-                # single is a single lower-case word without a space after it
-                word = word.strip()
-                self.start_identifier(None)
-
-            if self.last_word_was_identifier:
-                if self.identifier_type == ModeCode.IDENTIFIER_CAMEL or \
-                   self.identifier_type == ModeCode.IDENTIFIER_CAPITAL:
-                    word = word[0].upper() + word[1:]
-                elif self.identifier_type in (ModeCode.IDENTIFIER_UNDERSCORE, ModeCode.IDENTIFIER_CONSTANT) and \
-                        self.encountered_space_after_identifier:
-                    word = '_' + word
-                elif self.identifier_type == ModeCode.IDENTIFIER_HYPHEN and self.encountered_space_after_identifier:
-                    word = '-' + word
-                elif self.identifier_type == ModeCode.IDENTIFIER_SPACEY and self.encountered_space_after_identifier:
-                    word = ' ' + word
-
-            self.current_identifier_length += len(word)
-            self.emit_keypresses(word)
-            self.last_word_was_identifier = True
-            self.encountered_space_after_identifier = False
 
     def delete_last_word(self):
         print (self.undo_stack)
@@ -350,19 +351,19 @@ class ModeCode(SpeechMode):
                 # end identifier entry and return to single keypress mode
                 'delete': self.delete_last_word,
                 'junk': self.delete_current_identifier,
-                'spell': functools.partial(self.start_identifier, None),
                 'literal': self.set_escape_next_word,
-                'sequel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_ALLCAPS_SPACEY),
-                'capital': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAPITAL),
-                'camel': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CAMEL),
-                'line': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_UNDERSCORE),
-                'strike': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_HYPHEN),
-                'spacey': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_SPACEY),
-                'squeeze': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_NO_SEPARATOR),
-                'keyword': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_KEYWORD),
-                'single': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_SINGLE),
-                'constant': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_CONSTANT),
-                'dictate': functools.partial(self.start_identifier, ModeCode.IDENTIFIER_DICTATE),
+                'spell': functools.partial(self.set_entry_mode, 'spell'),
+                'capital': functools.partial(self.set_entry_mode, 'capital'),
+                'camel': functools.partial(self.set_entry_mode, 'camel'),
+                'line': functools.partial(self.set_entry_mode, 'line'),
+                'strike': functools.partial(self.set_entry_mode, 'strike'),
+                'spacey': functools.partial(self.set_entry_mode, 'spacey'),
+                'squeeze': functools.partial(self.set_entry_mode, 'squeeze'),
+                'sequel': functools.partial(self.set_entry_mode, 'sequel'),
+                'keyword': functools.partial(self.set_entry_mode, 'keyword'),
+                'single': functools.partial(self.set_entry_mode, 'single'),
+                'constant': functools.partial(self.set_entry_mode, 'constant'),
+                'dictate': functools.partial(self.set_entry_mode, 'dictate'),
                 'big': functools.partial(self.set_key_mod, 'shift'),
                 'alternate': functools.partial(self.set_key_mod, 'alternate'),
                 'control': functools.partial(self.set_key_mod, 'control'),
@@ -376,35 +377,33 @@ class ModeCode(SpeechMode):
             return
 
         if word == ' ':
-            # we don't echo the spaces in code mode, since spaces are generally
-            # inserted by specific operator commands (except in IDENTIFIER_DICTATE mode)
-            if self.last_word_was_identifier:
-                self.encountered_space_after_identifier = True
-
-            if self.identifier_type == ModeCode.IDENTIFIER_DICTATE \
-                    and self.current_identifier_length > 0:
+            if self.entry_mode.suppress_dragon_spaces is False and \
+                    self.current_identifier_length > 0:
                 self.emit_keypresses(' ')
 
             return
 
         if not self.escape_next_word and self.handle_as_command(word.lower()):
-            self.start_identifier(None)
+            self.set_entry_mode('spell')
             return
 
-        elif self.identifier_type != ModeCode.IDENTIFIER_DICTATE and \
+        elif self.entry_mode.suppress_dragon_spaces is True and \
                 not self.escape_next_word and \
                 self.handle_as_expansion(word.lower()):
             self.split_identifier()
             return
 
         elif word[0].isalpha():
-            self.parse_identifier(word)
+            word = self.entry_mode.transform_word(word, self)
+
+            self.current_identifier_length += len(word)
+            self.emit_keypresses(word)
 
         else:
             if word == '\n':
                 # end identifier entry on newline
-                self.start_identifier(None)
-            elif self.identifier_type != ModeCode.IDENTIFIER_DICTATE:
+                self.set_entry_mode('spell')
+            elif self.entry_mode.suppress_dragon_spaces is True:
                 # split the identifier on other symbol entry
                 self.split_identifier()
             self.emit_keypresses(word[0])
