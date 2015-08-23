@@ -23,8 +23,15 @@ taking the first letter of the word as the intended  keypress.
 
 Single keys:
 ============
+
+This is the default identifier input mode. If you are in another mode you can
+enter this mode with the command: spell
+
 utterance: Charlie India whiskey
 keypresses: cia (vim: change word)
+
+utterance: capital my scary spell big alpha big papa big india
+keypresses: MyScaryAPI
 
 Identify entry:
 ===============
@@ -33,6 +40,10 @@ keypresses: self.parentOfNode = null
 
 utterance: line self dot parent of node equals capital none
 keypresses: self.parent_of_node = None
+
+To capitalize a single word use the command 'big':
+utterance: line self dot parent of big node equals capital none
+keypresses: self.parent_of_Node = None
 
 To suppress spaces around operators, and separators around identifiers use
 'squeeze':
@@ -72,6 +83,9 @@ spacey          identifiers like this
 squeeze         identifierslikethis
 keyword         Single word with a space after it.
 single          Single word without a space after it.
+dictate		Enter normal english text (exactly as dragon receives it).
+
+Identifer mode returns to 'spell' after 'newline' or 'escape' commands.
 
 Custom words to add to dragon's vocabulary
 ==========================================

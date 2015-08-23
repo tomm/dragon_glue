@@ -196,7 +196,10 @@ class EntryMode(object):
         if self.capitalize_subsequent and mode_code.current_identifier_length > 0:
             word = word[0].upper() + word[1:]
 
-        if mode_code.current_identifier_length > 0 and self.separator:
+        if self.separator_after_last_word and self.separator:
+            word = word + self.separator
+
+        elif mode_code.current_identifier_length > 0 and self.separator:
             # not the first word, so add a separator
             word = self.separator + word
 
@@ -314,9 +317,6 @@ class ModeCode(SpeechMode):
         )
 
     def set_entry_mode(self, type):
-        if self.current_identifier_length > 0 and self.entry_mode.separator_after_last_word is True:
-            self.emit_keypresses(self.entry_mode.separator)
-
         self.current_identifier_length = 0
         self.entry_mode = ModeCode.ENTRY_MODES[type]
 
